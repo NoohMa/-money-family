@@ -1644,7 +1644,7 @@ const me = () => memberOf(S.me);
 const isKid = () => me()?.role === 'child';
 const isParentId = id => { const m = memberOf(id); return !m || m.role !== 'child'; };
 function canSeeTxn(t){ const m = me(); if (m && m.role !== 'child') return true; if (isParentId(t.by)) return true; return !!m && t.by === m.id; }
-function canSeeWho(id){ if (id === 'all' || id === 'fam') return true; const w = memberOf(id), m = me(); if (!w) return false; return w.role !== 'child' || (m && (m.role !== 'child' || m.id === id)); }
+function canSeeWho(id){ if (id === 'all' || id === 'fam') return true; const w = memberOf(id), m = me(); if (!w || !m) return false; return m.role !== 'child' || m.id === id; }
 function whoMatch(t, who){ return who === 'fam' ? isParentId(t.by) : t.by === who; }
 function canSeeAcc(a){ if (!a) return false; const m = me(); if (!m) return false; if (m.role !== 'child' || a.owner === m.id) return true; return (a.vis || []).includes(m.id); }
 const accName = a => !a ? '?' : canSeeAcc(a) ? a.name : '未公開帳戶';
@@ -1663,35 +1663,52 @@ function setMe(id){ S.me = id; P.me = id; P.meAt = Date.now(); P.lastAcc = null;
 function clearMe(){ S.me = null; P.me = null; savePrefs(); }
 function needMe(next){ if (me()) return next && next(); openWho(next); }
 function whoBar(){
-  const w = S.ui.who, b = (id, label, m) => `<button class="${w === id ? 'on' : ''}" onclick="S.ui.who='${id}';render()">${m && m.emoji ? m.emoji + ' ' : ''}${esc(label)}</button>`;
-  return `<div class="chips" style="margin:2px 16px 6px">${b('all', '全家')}${b('fam', '爸媽')}${memList().filter(m => canSeeWho(m.id)).map(m => b(m.id, m.name, m)).join('')}</div>`;
+  const w = S.ui.who, b = (id, label, m) => `<button class="${w === id ? 'on' : ''}" onclick="pickWho('${id}')">${m && m.emoji ? m.emoji + ' ' : ''}${esc(label)}${m && !canSeeWho(id) ? ' 🔒' : ''}</button>`;
+  return `<div class="chips" style="margin:2px 16px 6px">${b('all', '全家')}${memList().map(m => b(m.id, m.name, m)).join('')}</div>`;
+}
+function pickWho(id){
+  if (canSeeWho(id)) { S.ui.who = id; return render(); }
+  WHO = {sel:id, pin:'', next:() => { S.ui.who = id; render(); }}; openLayer('who', renderWho, 'btm');
 }
 let WHO = {sel:null, pin:'', next:null};
 function openWho(next){ WHO = {sel:null, pin:'', next:next || null}; openLayer('who', renderWho, 'btm'); }
 function renderWho(){
   if (!WHO.sel) return sheet('who', '你是誰？', `<div class="who">${memList().map(m => `<button onclick="WHO.sel='${m.id}';WHO.pin='';redraw('who')">${avatar(m, 52)}<span>${esc(m.name)}</span></button>`).join('')}</div>
-    ${me() ? `<button class="btn sec2" style="margin-top:14px" onclick="clearMe();closeLayer('who');render();toast('已登出身份')">登出目前身份（${esc(me().name)}）</button>` : ''}
-    <div class="hint" style="margin:12px 0 0">沒登入時只看得到爸媽記的帳；記帳、看自己的帳、看帳戶要輸入 PIN</div>`);
+    ${me() ? `<button class="btn sec2" style="margin-top:14px" onclick="clearMe();closeLayer('who');WHO={sel:null,pin:'',next:null};render();toast('已登出身份')">登出目前身份（${esc(me().name)}）</button>` : ''}
+    <div class="hint" style="margin:12px 0 0">「全家」不用登入；看個人的帳、記帳要輸入自己的 PIN</div>`);
   const m = memberOf(WHO.sel);
   return sheet('who', `<span style="display:flex;align-items:center;gap:6px"><button class="mini" onclick="WHO.sel=null;redraw('who')">${ic('left',20)}</button>${esc(m.name)}</span>`,
     `<div class="lk" style="margin:0 auto 6px">${avatar(m, 56)}<div class="dots4" style="margin:16px 0 22px">${[0, 1, 2, 3].map(i => `<i class="${i < WHO.pin.length ? 'on' : ''}"></i>`).join('')}</div>
     <div class="lkp">${['1','2','3','4','5','6','7','8','9','','0','⌫'].map(k => k ? `<button onclick="whoKey('${k}')">${k === '⌫' ? ic('back',22) : k}</button>` : '<span></span>').join('')}</div>
     <div class="sm tx2" style="margin-top:14px;text-align:center">忘記 PIN：請爸媽到「設定 → 家庭成員」重設</div></div>`);
 }
+function whoRedraw(){ if (LAYERS.some(l => l.key === 'who')) redraw('who'); else render(); }
+function pinPad(m){
+  return `<div class="lk" style="margin:0 auto 6px">${avatar(m, 56)}<div class="dots4" style="margin:16px 0 22px">${[0, 1, 2, 3].map(i => `<i class="${i < WHO.pin.length ? 'on' : ''}"></i>`).join('')}</div>
+    <div class="lkp">${['1','2','3','4','5','6','7','8','9','','0','⌫'].map(k => k ? `<button onclick="whoKey('${k}')">${k === '⌫' ? ic('back',22) : k}</button>` : '<span></span>').join('')}</div>
+    <div class="sm tx2" style="margin-top:14px;text-align:center">忘記 PIN：請爸媽到「設定 → 家庭成員」重設</div></div>`;
+}
+function renderGate(){
+  if (LAYERS.some(l => l.key === 'who')) closeLayer('who', true);
+  const m = memberOf(WHO.sel);
+  $('#app').innerHTML = `<div class="login" style="padding-top:calc(50px + env(safe-area-inset-top))">${m
+    ? `<button class="mini" style="margin-bottom:8px" onclick="WHO.sel=null;WHO.pin='';render()">${ic('left',22)}</button><h2 style="text-align:center;margin:0 0 18px">${esc(m.name)}</h2>${pinPad(m)}`
+    : `<h1 style="text-align:center">全家記帳</h1><p class="tx2" style="text-align:center;margin:0 0 26px">你是誰？</p><div class="who">${memList().map(x => `<button onclick="WHO.sel='${x.id}';WHO.pin='';WHO.next=null;render()">${avatar(x, 56)}<span>${esc(x.name)}</span></button>`).join('')}</div>`}</div>`;
+}
 let WHO_BUSY = false;
 async function whoKey(k){
   if (WHO_BUSY) return;
   if (k === '⌫') WHO.pin = WHO.pin.slice(0, -1); else if (WHO.pin.length < 4) WHO.pin += k;
-  redraw('who');
+  whoRedraw();
   if (WHO.pin.length < 4) return;
   WHO_BUSY = true;
   const m = memberOf(WHO.sel), ok = m && await pinHash(m.id, WHO.pin) === m.pin;
   WHO_BUSY = false;
   if (ok) {
-    const nx = WHO.next; setMe(m.id); closeLayer('who'); render(); toast(`嗨，${m.name}`);
+    const nx = WHO.next; setMe(m.id); WHO = {sel:null, pin:'', next:null}; closeLayer('who'); render(); toast(`嗨，${m.name}`);
     if (nx) nx(); else if (m.role !== 'child') checkKidAlerts();
   } else {
-    WHO.pin = ''; redraw('who'); const d = document.querySelector('.layer:last-child .dots4'); d && d.classList.add('shake'); toast('PIN 錯誤');
+    WHO.pin = ''; whoRedraw(); const d = document.querySelector(LAYERS.some(l => l.key === 'who') ? '.layer:last-child .dots4' : '#app .dots4'); d && d.classList.add('shake'); toast('PIN 錯誤');
   }
 }
 function kidBudget(k, y, m){
