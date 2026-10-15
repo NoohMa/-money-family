@@ -504,7 +504,7 @@ function flowsIn(from, to, who){
   if (who === undefined) who = S.ui.who;
   const f = compute().flows; let lo = 0, hi = f.length;
   while (lo < hi) { const m = (lo + hi) >> 1; if (f[m].date < from) lo = m + 1; else hi = m; }
-  const out = []; for (let i = lo; i < f.length && f[i].date <= to; i++) if (!who || who === 'all' || whoMatch(f[i].t, who)) out.push(f[i]); return out;
+  const out = []; for (let i = lo; i < f.length && f[i].date <= to; i++) if ((!who || who === 'all' || whoMatch(f[i].t, who)) && canSeeTxn(f[i].t)) out.push(f[i]); return out;
 }
 function summary(from, to){
   let exp = 0, inc = 0;
@@ -612,6 +612,7 @@ function render(){
   if (S.mode === 'cloud' && !S.user) { $('#nav').innerHTML = ''; return renderLogin(); }
   if (!S.ready) { $('#app').innerHTML = '<div class="empty" style="padding-top:40vh">載入中…</div>'; return; }
   if (!memList().length) { $('#nav').innerHTML = ''; return renderSetup(); }
+  if (!canSeeWho(S.ui.who)) S.ui.who = 'all';
   const v = {home:viewHome, accounts:viewAccounts, acct:viewAcct, settings:viewSettings, reports:viewReports}[S.ui.tab] || viewHome;
   $('#app').innerHTML = v();
   renderNav();
@@ -676,9 +677,9 @@ function viewHome(){
   let days = '';
   for (let i = 0; i < 7; i++) {
     const x = addD(ws, i), xd = pd(x);
-    days += `<button class="day ${x === sel ? 'sel' : ''} ${x === td ? 'today' : ''} ${c.days.has(x) ? 'has' : ''}" onclick="selDay('${x}')"><small>${WD[xd.getDay()]}</small><b>${xd.getDate()}</b><i></i></button>`;
+    days += `<button class="day ${x === sel ? 'sel' : ''} ${x === td ? 'today' : ''} ${c.list.some(t => t.date === x && canSeeTxn(t)) ? 'has' : ''}" onclick="selDay('${x}')"><small>${WD[xd.getDay()]}</small><b>${xd.getDate()}</b><i></i></button>`;
   }
-  const list = c.list.filter(t => t.date === sel).reverse();
+  const list = c.list.filter(t => t.date === sel && canSeeTxn(t)).reverse();
   const perCell = (label, s, fn) => `<div class="tap" onclick="${fn}"><small>${label} ›</small><p><span class="exp">${twd(-s.exp)}</span><br><span class="inc">${twd(s.inc, true)}</span></p></div>`;
   return `<div class="top"><div><div class="brand">FAMILY</div><h1>${y} 年 ${m+1} 月</h1></div>
     <div style="display:flex;gap:4px">${sel !== td ? `<button class="ib" onclick="selDay('${td}')" style="font-size:13px;width:auto;padding:0 10px;color:var(--acc)">今天</button>` : ''}
@@ -768,7 +769,7 @@ function viewAcct(){
   const c = compute(), b = c.bal[a.id] || 0, ci = cardInfo(a);
   if (!S.ui.am) { const n = new Date(); S.ui.am = {y:n.getFullYear(), m:n.getMonth()}; }
   const {y:ay, m:amn} = S.ui.am, mf = ds(new Date(ay, amn, 1)), mt = ds(new Date(ay, amn, dim(ay, amn)));
-  const list = c.list.filter(t => (t.accountId === a.id || t.toAccountId === a.id) && t.date >= mf && t.date <= mt).reverse();
+  const list = c.list.filter(t => (t.accountId === a.id || t.toAccountId === a.id) && t.date >= mf && t.date <= mt && canSeeTxn(t)).reverse();
   let mIn = 0, mOut = 0, endBal = +a.init || 0;
   for (const t of c.list) { if (t.date > mt) break; const d = delta(t, a.id); endBal += d; if (t.date >= mf && d) { if (d > 0) mIn += d; else mOut -= d; } }
   const now = new Date(), isCurM = ay === now.getFullYear() && amn === now.getMonth();
@@ -811,7 +812,7 @@ function amShift(n){ let {y, m} = S.ui.am; m += n; if (m < 0) { m = 11; y--; } i
 function openAcctForm(id){
   const a = id ? S.data.accounts[id] : null;
   AF = a ? {...a, vis:[...(a.vis || [])], inNW: a.inNW !== false, initInput: a.type === 'credit' ? String(-(a.init || 0)) : String(a.init || 0)} :
-    {id:null, name:'', type:isKid() ? 'cash' : 'bank', currency:'TWD', initInput:'0', initRate:'', limit:'', closeDay:'', dueDay:'', color:PALETTE[12], archived:false, inNW:true, owner:me()?.id || null, vis:isKid() ? kidsList().map(k => k.id) : []};
+    {id:null, name:'', type:isKid() ? 'cash' : 'bank', currency:'TWD', initInput:'0', initRate:'', limit:'', closeDay:'', dueDay:'', color:PALETTE[12], archived:false, inNW:true, owner:me()?.id || null, vis:[]};
   openLayer('acf', renderAcctForm, 'btm');
 }
 function renderAcctForm(){
@@ -1547,7 +1548,7 @@ function bbar(pct, color){ const p = Math.min(100, pct * 100); return `<div clas
 function viewBudget(){
   const r = S.ui.rp, b = budgetOf(r.y, r.m), nav = `<div class="rbar"><span></span><div class="nav2"><button onclick="S.ui.rp.per='month';rpShift(-1)">${ic('left',20)}</button><span>${r.y} 年 ${r.m + 1} 月</span><button onclick="S.ui.rp.per='month';rpShift(1)">${ic('right',20)}</button></div></div>`;
   const par = !!me() && !isKid(), setBtn = par ? `<div style="margin:14px 16px"><button class="btn sec2" onclick="openBudgetEdit()">家庭預算設定</button></div>` : '';
-  const ks = kidsList(), kidsSec = ks.length ? `<div class="sec"><h3>孩子零用錢</h3><span class="sm tx2">孩子自己記的支出</span></div><div class="list">${ks.map(k => { const kb = kidBudget(k, r.y, r.m);
+  const ks = kidsList().filter(k => canSeeWho(k.id)), kidsSec = ks.length ? `<div class="sec"><h3>孩子零用錢</h3><span class="sm tx2">孩子自己記的支出</span></div><div class="list">${ks.map(k => { const kb = kidBudget(k, r.y, r.m);
       return `<div class="row">${avatar(k, 40)}<span class="mid"><b>${esc(k.name)} <span class="tx2 sm" style="font-weight:400">${kb.base ? `${twd(kb.spent)} / ${twd(kb.base)}` : `已花 ${twd(kb.spent)} · 未設預算`}</span></b>${kb.base ? bbar(kb.pct) : ''}</span>${kb.base ? `<span class="amt ${kb.remain < 0 ? 'exp' : ''}">${twd(Math.abs(kb.remain))}<small>${kb.remain < 0 ? '超支' : '剩餘'}</small></span>` : ''}</div>`; }).join('')}</div>
     ${isKid() ? '<div style="margin:12px 16px"><button class="btn sec2" onclick="setMyBudget()">設定我的零用錢預算</button></div>' : ''}` : '';
   if (!hasBudget()) return `${nav}<div class="card"><p class="mt0">還沒有設定家庭預算</p>${par ? '<button class="btn" onclick="openBudgetEdit()">設定預算</button>' : '<small class="tx2">由爸媽設定</small>'}</div>${kidsSec}`;
@@ -1606,6 +1607,7 @@ function srMatch(){
   const C = S.data.categories, A = S.data.accounts, Pj = S.data.projects;
   const words = SR.q.trim().toLowerCase().split(/\s+/).filter(Boolean), mn = parseFloat(SR.min), mx = parseFloat(SR.max);
   return compute().list.filter(t => {
+    if (!canSeeTxn(t)) return false;
     if (SR.type && t.type !== SR.type) return false;
     if (SR.acc && t.accountId !== SR.acc && t.toAccountId !== SR.acc) return false;
     if (SR.cat && !inCatId(t.catId, SR.cat)) return false;
@@ -1641,6 +1643,8 @@ const kidsList = () => memList().filter(m => m.role === 'child');
 const me = () => memberOf(S.me);
 const isKid = () => me()?.role === 'child';
 const isParentId = id => { const m = memberOf(id); return !m || m.role !== 'child'; };
+function canSeeTxn(t){ const m = me(); if (m && m.role !== 'child') return true; if (isParentId(t.by)) return true; return !!m && t.by === m.id; }
+function canSeeWho(id){ if (id === 'all' || id === 'fam') return true; const w = memberOf(id), m = me(); if (!w) return false; return w.role !== 'child' || (m && (m.role !== 'child' || m.id === id)); }
 function whoMatch(t, who){ return who === 'fam' ? isParentId(t.by) : t.by === who; }
 function canSeeAcc(a){ if (!a) return false; const m = me(); if (!m) return false; if (m.role !== 'child' || a.owner === m.id) return true; return (a.vis || []).includes(m.id); }
 const accName = a => !a ? '?' : canSeeAcc(a) ? a.name : '未公開帳戶';
@@ -1660,14 +1664,14 @@ function clearMe(){ S.me = null; P.me = null; savePrefs(); }
 function needMe(next){ if (me()) return next && next(); openWho(next); }
 function whoBar(){
   const w = S.ui.who, b = (id, label, m) => `<button class="${w === id ? 'on' : ''}" onclick="S.ui.who='${id}';render()">${m && m.emoji ? m.emoji + ' ' : ''}${esc(label)}</button>`;
-  return `<div class="chips" style="margin:2px 16px 6px">${b('all', '全家')}${b('fam', '爸媽')}${memList().map(m => b(m.id, m.name, m)).join('')}</div>`;
+  return `<div class="chips" style="margin:2px 16px 6px">${b('all', '全家')}${b('fam', '爸媽')}${memList().filter(m => canSeeWho(m.id)).map(m => b(m.id, m.name, m)).join('')}</div>`;
 }
 let WHO = {sel:null, pin:'', next:null};
 function openWho(next){ WHO = {sel:null, pin:'', next:next || null}; openLayer('who', renderWho, 'btm'); }
 function renderWho(){
   if (!WHO.sel) return sheet('who', '你是誰？', `<div class="who">${memList().map(m => `<button onclick="WHO.sel='${m.id}';WHO.pin='';redraw('who')">${avatar(m, 52)}<span>${esc(m.name)}</span></button>`).join('')}</div>
     ${me() ? `<button class="btn sec2" style="margin-top:14px" onclick="clearMe();closeLayer('who');render();toast('已登出身份')">登出目前身份（${esc(me().name)}）</button>` : ''}
-    <div class="hint" style="margin:12px 0 0">看帳不用登入；記帳、改帳、看帳戶要輸入自己的 PIN</div>`);
+    <div class="hint" style="margin:12px 0 0">沒登入時只看得到爸媽記的帳；記帳、看自己的帳、看帳戶要輸入 PIN</div>`);
   const m = memberOf(WHO.sel);
   return sheet('who', `<span style="display:flex;align-items:center;gap:6px"><button class="mini" onclick="WHO.sel=null;redraw('who')">${ic('left',20)}</button>${esc(m.name)}</span>`,
     `<div class="lk" style="margin:0 auto 6px">${avatar(m, 56)}<div class="dots4" style="margin:16px 0 22px">${[0, 1, 2, 3].map(i => `<i class="${i < WHO.pin.length ? 'on' : ''}"></i>`).join('')}</div>
@@ -1750,7 +1754,7 @@ function renderSetup(){
 async function finishSetup(){ const m = await saveMem(); if (m) { MF = null; setMe(m.id); render(); toast('建立完成'); } }
 function openMembers(){ openLayer('mem', () => `<div class="lin"><div class="lhd"><button class="ib" onclick="closeLayer('mem')">${ic('left',24)}</button><h2>家庭成員</h2><button class="ib" onclick="openMemForm()">${ic('plus',24)}</button></div>
   <div class="fscroll"><div class="list">${memList().map(m => `<button class="row" onclick="openMemForm('${m.id}')">${avatar(m, 40)}<span class="mid"><b>${esc(m.name)}${m.id === S.me ? '（我）' : ''}</b><small>${m.role === 'child' ? '孩子' : '家長'}${m.role === 'child' && +m.budget > 0 ? ' · 零用錢預算 ' + twd(m.budget) : ''}</small></span>${ic('right',18)}</button>`).join('')}</div>
-  <div class="hint">・家長：看得到所有帳戶，可以改、刪任何人的紀錄<br>・孩子：只能改自己記的；哪些帳戶給哪個孩子看，在帳戶的編輯畫面設定<br>・孩子忘記 PIN，點進去輸入新 PIN 即可重設</div></div></div>`, 'full'); }
+  <div class="hint">・家長：看得到所有帳戶，可以改、刪任何人的紀錄<br>・孩子：只看得到自己和爸媽記的帳，看不到兄弟姊妹的；只能改自己記的<br>・哪些帳戶給哪個孩子看，在帳戶的編輯畫面設定<br>・孩子忘記 PIN，點進去輸入新 PIN 即可重設</div></div></div>`, 'full'); }
 function openMemForm(id){
   const m = id ? memberOf(id) : null;
   MF = m ? {...m, budget:m.budget || '', pin1:'', pin2:''} : {id:null, name:'', role:'child', emoji:'👦', color:MCOLORS[memList().length % MCOLORS.length], budget:'', pin1:'', pin2:''};
