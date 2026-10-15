@@ -270,7 +270,7 @@ const FIREBASE_CONFIG = {
   appId: "..."
 };
 */
-const VERSION = 'F1.0';
+const VERSION = 'F1.1';
 
 /* ---------- utils ---------- */
 const $ = s => document.querySelector(s);
@@ -423,7 +423,7 @@ function saveLocal(){ if (S.mode !== 'local') return; try { localStorage.setItem
 function put(col, obj, silent){
   obj.updatedAt = Date.now();
   S.data[col][obj.id] = obj; bump();
-  if (S.mode === 'cloud' && ledgerRef) ledgerRef.collection(col).doc(obj.id).set(obj).catch(e => toast('同步失敗：' + e.code));
+  if (S.mode === 'cloud' && ledgerRef) ledgerRef.collection(col).doc(obj.id).set(clean(obj)).catch(e => toast('同步失敗：' + e.code));
   else saveLocal();
   if (!silent) render();
 }
@@ -433,10 +433,11 @@ function del(col, id){
   else saveLocal();
   render();
 }
+const clean = o => JSON.parse(JSON.stringify(o));
 function putSettings(patch){
   S.settings = {...S.settings, ...patch};
   if ('carrier' in patch) { P.carrier = patch.carrier; savePrefs(); }
-  if (S.mode === 'cloud' && ledgerRef) ledgerRef.collection('meta').doc('settings').set(S.settings, {merge:true});
+  if (S.mode === 'cloud' && ledgerRef) ledgerRef.collection('meta').doc('settings').set(clean(S.settings));
   else saveLocal();
   applyTheme(); render();
 }
@@ -769,7 +770,7 @@ function viewAcct(){
   const c = compute(), b = c.bal[a.id] || 0, ci = cardInfo(a);
   if (!S.ui.am) { const n = new Date(); S.ui.am = {y:n.getFullYear(), m:n.getMonth()}; }
   const {y:ay, m:amn} = S.ui.am, mf = ds(new Date(ay, amn, 1)), mt = ds(new Date(ay, amn, dim(ay, amn)));
-  const list = c.list.filter(t => (t.accountId === a.id || t.toAccountId === a.id) && t.date >= mf && t.date <= mt && canSeeTxn(t)).reverse();
+  const list = c.list.filter(t => (t.accountId === a.id || (t.type === 'transfer' && t.toAccountId === a.id)) && t.date >= mf && t.date <= mt && canSeeTxn(t)).reverse();
   let mIn = 0, mOut = 0, endBal = +a.init || 0;
   for (const t of c.list) { if (t.date > mt) break; const d = delta(t, a.id); endBal += d; if (t.date >= mf && d) { if (d > 0) mIn += d; else mOut -= d; } }
   const now = new Date(), isCurM = ay === now.getFullYear() && amn === now.getMonth();
@@ -854,7 +855,7 @@ function saveAcct(){
 }
 function delAcct(){
   const id = AF.id;
-  if (Object.values(S.data.txns).some(t => t.accountId === id || t.toAccountId === id)) return toast('有紀錄的帳戶不能刪除，請改用封存');
+  if (Object.values(S.data.txns).some(t => t.accountId === id || (t.type === 'transfer' && t.toAccountId === id))) return toast('有紀錄的帳戶不能刪除，請改用封存');
   if (!confirm('確定刪除？')) return;
   closeLayer('acf'); S.ui.tab = 'accounts'; del('accounts', id);
 }
@@ -1072,6 +1073,7 @@ function saveTxn(){
   const old = F.id ? S.data.txns[F.id] : null;
   const t = {...(old || {}), ...o, id:F.id || 't_' + uid(), date:F.date, createdAt:F.createdAt || Date.now(), by:old ? (old.by || me().id) : me().id, upd:me().id};
   delete t.inst;
+  if (t.type !== 'transfer') { delete t.toAccountId; delete t.toAmount; delete t.fee; }
   if (old && old.rate && (S.data.accounts[old.accountId]?.currency !== S.data.accounts[t.accountId]?.currency || old.amount !== t.amount)) delete t.rate;
   if (t.type === 'expense' && F.instN > 1 && S.data.accounts[t.accountId]?.type === 'credit') t.inst = {n:+F.instN, fee:evalExpr(F.instFeeExpr) || 0};
   if (t.type !== 'transfer') P.lastCat[t.type] = t.catId;
@@ -1349,7 +1351,7 @@ async function bulkPut(col, arr){
   for (const o of arr) { o.updatedAt = now; S.data[col][o.id] = o; }
   bump();
   if (S.mode === 'cloud' && ledgerRef) {
-    for (let i = 0; i < arr.length; i += 400) { const b = db.batch(); arr.slice(i, i + 400).forEach(o => b.set(ledgerRef.collection(col).doc(o.id), o)); await b.commit(); }
+    for (let i = 0; i < arr.length; i += 400) { const b = db.batch(); arr.slice(i, i + 400).forEach(o => b.set(ledgerRef.collection(col).doc(o.id), clean(o))); await b.commit(); }
   } else saveLocal();
 }
 
@@ -1514,7 +1516,7 @@ async function doJsonImport(){
   const j = IMP.json; closeLayer('imp'); toast('還原中…');
   try {
     for (const col of COLS) await bulkPut(col, Object.values(j.data[col] || {}).map(o => ({...o})));
-    if (j.settings) { const {carrier, theme, custom, rateOverride} = j.settings; putSettings({carrier:carrier || S.settings.carrier, theme:theme || S.settings.theme, custom:custom || S.settings.custom, rateOverride:rateOverride || {}}); }
+    if (j.settings) putSettings({...j.settings, carrier:j.settings.carrier || S.settings.carrier, rateOverride:j.settings.rateOverride || {}});
     render(); toast(`已還原 ${Object.keys(j.data.txns || {}).length} 筆`);
   } catch(e) { toast('還原失敗：' + (e.code || e.message)); }
 }
@@ -1609,7 +1611,7 @@ function srMatch(){
   return compute().list.filter(t => {
     if (!canSeeTxn(t)) return false;
     if (SR.type && t.type !== SR.type) return false;
-    if (SR.acc && t.accountId !== SR.acc && t.toAccountId !== SR.acc) return false;
+    if (SR.acc && t.accountId !== SR.acc && !(t.type === 'transfer' && t.toAccountId === SR.acc)) return false;
     if (SR.cat && !inCatId(t.catId, SR.cat)) return false;
     if (SR.proj && t.projectId !== SR.proj) return false;
     if (SR.from && t.date < SR.from) return false;
@@ -1981,7 +1983,7 @@ async function batchWrite(lref, data){
   const ops = [], now = Date.now();
   for (const col of COLS) for (const o of Object.values(data[col] || {})) ops.push([col, {...o, updatedAt:o.updatedAt || now}]);
   for (let i = 0; i < ops.length; i += 400) {
-    const b = db.batch(); ops.slice(i, i + 400).forEach(([col, o]) => b.set(lref.collection(col).doc(o.id), o)); await b.commit();
+    const b = db.batch(); ops.slice(i, i + 400).forEach(([col, o]) => b.set(lref.collection(col).doc(o.id), clean(o))); await b.commit();
   }
 }
 async function attachLedger(u){
