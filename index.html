@@ -289,7 +289,7 @@ const FIREBASE_CONFIG = {
   appId: "..."
 };
 */
-const VERSION = 'F1.3';
+const VERSION = 'F1.4';
 
 /* ---------- utils ---------- */
 const $ = s => document.querySelector(s);
@@ -653,7 +653,7 @@ const sheet = (key, title, body) => `<div class="bd" onclick="closeLayer('${key}
 
 /* ---------- render ---------- */
 function render(){
-  if (S.mode === 'cloud' && !S.user) { $('#nav').innerHTML = ''; return renderLogin(); }
+  if (S.mode === 'cloud' && !S.user) { $('#nav').innerHTML = ''; if (S.authWait) { $('#app').innerHTML = '<div class="empty" style="padding-top:40vh">載入中…</div>'; return; } return renderLogin(); }
   if (!S.ready) { $('#app').innerHTML = '<div class="empty" style="padding-top:40vh">載入中…</div>'; return; }
   if (!memList().length) { $('#nav').innerHTML = ''; return renderSetup(); }
   if (!canSeeWho(S.ui.who)) S.ui.who = 'all';
@@ -2411,7 +2411,8 @@ async function attachLedger(u){
   let exists = false;
   try { exists = (await ledgerRef.get({source:'cache'})).exists; } catch(e) {}
   if (!exists) { try { const snap = await ledgerRef.get(); if (!snap.exists && !snap.metadata.fromCache) { await ledgerRef.set({createdAt:Date.now()}); await batchWrite(ledgerRef, defaultData()); } } catch(e) {} }
-  let pending = COLS.length + 1; const done = () => { if (--pending === 0) { S.ready = true; render(); afterReady(); } };
+  let pending = COLS.length + 1; const done = () => { if (--pending === 0 && !S.ready) { S.ready = true; render(); afterReady(); } };
+  try { const d = await ledgerRef.collection('meta').doc('settings').get({source:'cache'}); if (d.exists) { S.settings = {...S.settings, ...d.data()}; applyTheme(); } } catch(e) {}
   let rt; const sched = () => { clearTimeout(rt); rt = setTimeout(() => { bump(); if (S.ready) render(); }, 60); };
   for (const col of COLS) {
     const cached = {}; let maxU = 0;
@@ -2424,6 +2425,8 @@ async function attachLedger(u){
       sched(); if (first) { first = false; done(); }
     }, e => { toast('讀取失敗：' + e.code); if (first) { first = false; done(); } }));
   }
+  /* 這台裝置用過：本機快取讀完就先顯示，不用等網路 */
+  if (!S.ready && Object.keys(S.data.members || {}).length) { S.ready = true; bump(); render(); afterReady(); }
   let firstS = true;
   unsubs.push(ledgerRef.collection('meta').doc('settings').onSnapshot(d => { if (d.exists) { S.settings = {...S.settings, ...d.data()}; applyTheme(); sched(); } if (firstS) { firstS = false; done(); } }));
 }
@@ -2448,9 +2451,10 @@ function boot(){
     db = firebase.firestore();
     db.enablePersistence({synchronizeTabs:true}).catch(() => {});
     auth = firebase.auth();
-    applyTheme(); render();
+    S.authWait = !!P.signed; applyTheme(); render();
+    if (S.authWait) setTimeout(() => { if (S.authWait && !S.user) { S.authWait = false; render(); } }, 8000);
     auth.onAuthStateChanged(u => {
-      S.user = u;
+      S.user = u; S.authWait = false; if (!!P.signed !== !!u) { P.signed = !!u; savePrefs(); }
       if (!u) { S.ready = false; ledgerRef = null; S.data = {accounts:{}, txns:{}, categories:{}, projects:{}, recurring:{}, templates:{}, members:{}}; render(); return; }
       attachLedger(u).catch(e => { toast('連線失敗：' + (e.code || e.message)); });
     });
