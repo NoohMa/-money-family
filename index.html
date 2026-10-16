@@ -240,6 +240,8 @@ a[href*="netlify.com"],[id*="netlify" i],[class*="netlify" i]{display:none!impor
 .kidc{display:block;text-align:left;background:var(--card);border-radius:16px;padding:10px 12px;box-shadow:var(--sh);min-width:0}
 .kidc .h{display:flex;justify-content:space-between;align-items:baseline;gap:4px;margin-bottom:2px}.kidc .h b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acc{color:var(--acc)}
+.offbar{margin:0 16px 8px;padding:8px 12px;border-radius:12px;background:#FFF3D6;color:#8A5A00;font-size:13px}
+[data-mode=dark] .offbar{background:#3A2E14;color:#F2C46B}
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -287,7 +289,7 @@ const FIREBASE_CONFIG = {
   appId: "..."
 };
 */
-const VERSION = 'F1.2';
+const VERSION = 'F1.3';
 
 /* ---------- utils ---------- */
 const $ = s => document.querySelector(s);
@@ -606,6 +608,8 @@ function effMode(){
 }
 setInterval(() => { if (P.mode === 'time' && document.documentElement.dataset.mode !== effMode()) applyTheme(); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) applyTheme(); });
+window.addEventListener('offline', () => { toast('離線中：照常記帳，連上網路後自動同步'); if (S.ui.tab === 'home' && !LAYERS.length) render(); });
+window.addEventListener('online', () => { toast('已連上網路，同步中'); if (S.ui.tab === 'home' && !LAYERS.length) render(); });
 function applyTheme(){
   const th = S.settings.theme === 'custom' ? S.settings.custom : (THEMES[S.settings.theme] || THEMES.rose);
   const dark = effMode() === 'dark', r = document.documentElement;
@@ -728,7 +732,7 @@ function viewHome(){
   return `<div class="top"><div><div class="brand">FAMILY</div><h1 style="cursor:pointer" onclick="openYM('home')">${y} 年 ${m+1} 月 <span style="font-size:14px;color:var(--tx2)">▾</span></h1></div>
     <div style="display:flex;gap:4px">${sel !== td ? `<button class="ib" onclick="selDay('${td}')" style="font-size:13px;width:auto;padding:0 10px;color:var(--acc)">今天</button>` : ''}
     <button class="ib" onclick="openSearch()">${ic('search',22)}</button><button class="ib" onclick="openMonthCal()">${ic('cal',22)}</button><button class="ib" onclick="openWho()">${avatar(me(), 30)}</button></div></div>
-    ${whoBar()}${alerts()}${monthReportCard()}
+    ${navigator.onLine === false ? '<div class="offbar">📴 離線中：可以照常記帳，連上網路後會自動同步</div>' : ''}${whoBar()}${alerts()}${monthReportCard()}
     <div class="week" id="week"><button class="arr" onclick="selDay('${addD(sel,-7)}')">${ic('left',20)}</button><div class="days">${days}</div><button class="arr" onclick="selDay('${addD(sel,7)}')">${ic('right',20)}</button></div>
     <div class="card"><div class="sum3">
       <div class="tap" onclick="goRp('cat','month',${y},${m},'income')"><small>本月收入 ›</small><b class="inc">${twd(ms.inc)}</b></div>
@@ -2403,8 +2407,10 @@ async function batchWrite(lref, data){
 async function attachLedger(u){
   S.ready = false; render();
   S.ledgerId = u.uid; ledgerRef = db.collection('families').doc(u.uid);
-  const snap = await ledgerRef.get();
-  if (!snap.exists) { await ledgerRef.set({createdAt:Date.now()}); await batchWrite(ledgerRef, defaultData()); }
+  /* 離線也能開：先看本機快取，有就不必等網路 */
+  let exists = false;
+  try { exists = (await ledgerRef.get({source:'cache'})).exists; } catch(e) {}
+  if (!exists) { try { const snap = await ledgerRef.get(); if (!snap.exists && !snap.metadata.fromCache) { await ledgerRef.set({createdAt:Date.now()}); await batchWrite(ledgerRef, defaultData()); } } catch(e) {} }
   let pending = COLS.length + 1; const done = () => { if (--pending === 0) { S.ready = true; render(); afterReady(); } };
   let rt; const sched = () => { clearTimeout(rt); rt = setTimeout(() => { bump(); if (S.ready) render(); }, 60); };
   for (const col of COLS) {
