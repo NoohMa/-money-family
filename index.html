@@ -289,7 +289,7 @@ const FIREBASE_CONFIG = {
   appId: "..."
 };
 */
-const VERSION = 'F1.4';
+const VERSION = 'F1.5';
 
 /* ---------- utils ---------- */
 const $ = s => document.querySelector(s);
@@ -434,7 +434,7 @@ try { RATES = JSON.parse(localStorage.getItem(RATE_KEY)) || RATES; } catch(e){}
 const rate = cur => cur === 'TWD' ? 1 : (+(S.settings.rateOverride || {})[cur] || RATES.r[cur] || FALLBACK_RATE[cur] || 1);
 
 let db = null, auth = null, ledgerRef = null, unsubs = [];
-let VER = 0; const bump = () => { VER++; };
+let VER = 0; const bump = () => { VER++; snapSave(); };
 
 /* ---------- store ---------- */
 function readLocal(){ try { return JSON.parse(localStorage.getItem(LOCAL_KEY)); } catch(e){ return null; } }
@@ -2404,31 +2404,53 @@ async function batchWrite(lref, data){
     const b = db.batch(); ops.slice(i, i + 400).forEach(([col, o]) => b.set(lref.collection(col).doc(o.id), clean(o))); await b.commit();
   }
 }
-async function attachLedger(u){
-  S.ready = false; render();
+/* 快照：整份資料存一份在手機，下次打開立刻顯示（跟個人版一樣），雲端再補上變動 */
+const emptyData = () => ({accounts:{}, txns:{}, categories:{}, projects:{}, recurring:{}, templates:{}, members:{}});
+let READY_ONCE = false;
+function readyOnce(){ if (READY_ONCE) return; READY_ONCE = true; afterReady(); }
+function idb(){ return new Promise((res, rej) => { const q = indexedDB.open('money_fam_snap', 1); q.onupgradeneeded = () => q.result.createObjectStore('kv'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+async function snapGet(){ try { const d = await idb(); return await new Promise(res => { const q = d.transaction('kv').objectStore('kv').get('snap'); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); }); } catch(e) { return null; } }
+let snapT;
+function snapSave(){
+  if (S.mode !== 'cloud' || !S.user || !S.ready) return;
+  clearTimeout(snapT);
+  snapT = setTimeout(async () => { try { const d = await idb(); d.transaction('kv', 'readwrite').objectStore('kv').put({uid:S.user.uid, data:S.data, settings:S.settings, at:Date.now()}, 'snap'); } catch(e) {} }, 1500);
+}
+async function snapClear(){ try { const d = await idb(); d.transaction('kv', 'readwrite').objectStore('kv').delete('snap'); } catch(e) {} }
+function detach(){ ATT++; unsubs.forEach(f => { try { f(); } catch(e) {} }); unsubs = []; ledgerRef = null; S.ready = false; READY_ONCE = false; S.data = emptyData(); }
+let ATT = 0;
+async function attachLedger(u, keep){
+  const my = ++ATT, stale = () => my !== ATT;
+  unsubs.forEach(f => { try { f(); } catch(e) {} }); unsubs = [];
+  if (!keep) { S.ready = false; render(); }
   S.ledgerId = u.uid; ledgerRef = db.collection('families').doc(u.uid);
-  /* 離線也能開：先看本機快取，有就不必等網路 */
-  let exists = false;
-  try { exists = (await ledgerRef.get({source:'cache'})).exists; } catch(e) {}
-  if (!exists) { try { const snap = await ledgerRef.get(); if (!snap.exists && !snap.metadata.fromCache) { await ledgerRef.set({createdAt:Date.now()}); await batchWrite(ledgerRef, defaultData()); } } catch(e) {} }
-  let pending = COLS.length + 1; const done = () => { if (--pending === 0 && !S.ready) { S.ready = true; render(); afterReady(); } };
-  try { const d = await ledgerRef.collection('meta').doc('settings').get({source:'cache'}); if (d.exists) { S.settings = {...S.settings, ...d.data()}; applyTheme(); } } catch(e) {}
+  if (!keep) {
+    /* 離線也能開：先看本機快取，有就不必等網路 */
+    let exists = false;
+    try { exists = (await ledgerRef.get({source:'cache'})).exists; } catch(e) {}
+    if (!exists) { try { const snap = await ledgerRef.get(); if (!snap.exists && !snap.metadata.fromCache) { await ledgerRef.set({createdAt:Date.now()}); await batchWrite(ledgerRef, defaultData()); } } catch(e) {} }
+    try { const d = await ledgerRef.collection('meta').doc('settings').get({source:'cache'}); if (d.exists) { S.settings = {...S.settings, ...d.data()}; applyTheme(); } } catch(e) {}
+    if (stale()) return;
+  }
+  let pending = COLS.length + 1; const done = () => { if (--pending === 0 && !S.ready) { S.ready = true; bump(); render(); readyOnce(); } };
   let rt; const sched = () => { clearTimeout(rt); rt = setTimeout(() => { bump(); if (S.ready) render(); }, 60); };
-  for (const col of COLS) {
-    const cached = {}; let maxU = 0;
-    try { const qs = await ledgerRef.collection(col).get({source:'cache'}); qs.forEach(d => { const o = d.data(); maxU = Math.max(maxU, +o.updatedAt || 0); if (!o.purged) cached[d.id] = o; }); } catch(e) {}
-    S.data[col] = cached;
+  const cachedAll = keep ? null : await Promise.all(COLS.map(col => ledgerRef.collection(col).get({source:'cache'}).catch(() => null)));
+  if (stale()) return;
+  COLS.forEach((col, ci) => {
+    let maxU = 0;
+    if (keep) { S.data[col] = S.data[col] || {}; for (const o of Object.values(S.data[col])) maxU = Math.max(maxU, +o.updatedAt || 0); }
+    else { const cached = {}; cachedAll[ci]?.forEach(d => { const o = d.data(); maxU = Math.max(maxU, +o.updatedAt || 0); if (!o.purged) cached[d.id] = o; }); S.data[col] = cached; }
     const q = maxU ? ledgerRef.collection(col).where('updatedAt', '>', maxU - 600000) : ledgerRef.collection(col);
     let first = true;
     unsubs.push(q.onSnapshot(qs => {
       qs.docChanges().forEach(ch => { if (ch.type === 'removed') return; const o = ch.doc.data(); if (o.purged) delete S.data[col][ch.doc.id]; else S.data[col][ch.doc.id] = o; });
       sched(); if (first) { first = false; done(); }
-    }, e => { toast('讀取失敗：' + e.code); if (first) { first = false; done(); } }));
-  }
+    }, e => { if (e.code !== 'permission-denied' || !(S.user && S.user.fromSnap)) toast('讀取失敗：' + e.code); if (first) { first = false; done(); } }));
+  });
   /* 這台裝置用過：本機快取讀完就先顯示，不用等網路 */
-  if (!S.ready && Object.keys(S.data.members || {}).length) { S.ready = true; bump(); render(); afterReady(); }
+  if (!S.ready && Object.keys(S.data.members || {}).length) { S.ready = true; bump(); render(); readyOnce(); }
   let firstS = true;
-  unsubs.push(ledgerRef.collection('meta').doc('settings').onSnapshot(d => { if (d.exists) { S.settings = {...S.settings, ...d.data()}; applyTheme(); sched(); } if (firstS) { firstS = false; done(); } }));
+  unsubs.push(ledgerRef.collection('meta').doc('settings').onSnapshot(d => { if (d.exists) { S.settings = {...S.settings, ...d.data()}; applyTheme(); sched(); } if (firstS) { firstS = false; done(); } }, () => { if (firstS) { firstS = false; done(); } }));
 }
 
 /* ---------- boot ---------- */
@@ -2451,12 +2473,24 @@ function boot(){
     db = firebase.firestore();
     db.enablePersistence({synchronizeTabs:true}).catch(() => {});
     auth = firebase.auth();
-    S.authWait = !!P.signed; applyTheme(); render();
+    S.authWait = !!(P.lastUid || P.signed); applyTheme(); render();
     if (S.authWait) setTimeout(() => { if (S.authWait && !S.user) { S.authWait = false; render(); } }, 8000);
-    auth.onAuthStateChanged(u => {
-      S.user = u; S.authWait = false; if (!!P.signed !== !!u) { P.signed = !!u; savePrefs(); }
-      if (!u) { S.ready = false; ledgerRef = null; S.data = {accounts:{}, txns:{}, categories:{}, projects:{}, recurring:{}, templates:{}, members:{}}; render(); return; }
-      attachLedger(u).catch(e => { toast('連線失敗：' + (e.code || e.message)); });
+    /* 登入過的裝置：先用手機裡的快照立刻顯示，不等登入確認 */
+    const snapP = P.lastUid ? snapGet() : Promise.resolve(null);
+    snapP.then(sn => {
+      if (!P.lastUid || S.user) return;
+      S.user = {uid:P.lastUid, email:P.lastEmail || '', fromSnap:true};
+      if (sn && sn.uid === P.lastUid && sn.data) { S.data = {...emptyData(), ...sn.data}; S.settings = {...S.settings, ...(sn.settings || {})}; S.ready = true; bump(); applyTheme(); render(); readyOnce(); }
+      attachLedger(S.user, S.ready).catch(e => { toast('連線失敗：' + (e.code || e.message)); });
+    }).finally(() => {
+      auth.onAuthStateChanged(u => {
+        S.authWait = false;
+        if (!u) { detach(); S.user = null; snapClear(); if (P.lastUid || P.signed) { P.lastUid = null; P.signed = false; savePrefs(); } render(); return; }
+        if (P.lastUid !== u.uid || P.lastEmail !== u.email) { P.lastUid = u.uid; P.lastEmail = u.email; P.signed = true; savePrefs(); }
+        if (S.user && S.user.uid === u.uid && ledgerRef) { const re = S.user.fromSnap; S.user = u; if (re) attachLedger(u, S.ready).catch(() => {}); return; }
+        if (S.user) detach();
+        S.user = u; attachLedger(u).catch(e => { toast('連線失敗：' + (e.code || e.message)); });
+      });
     });
   } else {
     S.mode = 'local';
