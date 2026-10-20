@@ -81,7 +81,7 @@ nav .fab{width:54px;height:54px;border-radius:18px;background:var(--acc);color:#
 .kv small{display:block;color:var(--tx2);font-size:12px}
 .kv b{font-size:16px}
 /* layers */
-#layers .layer{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;opacity:0;transition:opacity .18s}
+#layers .layer{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;opacity:0;transition:opacity .12s}
 #layers .layer.on{opacity:1}
 .layer.full{background:var(--bg)}
 .layer.full .lin{max-width:520px;width:100%;margin:0 auto;height:100%;display:flex;flex-direction:column}
@@ -357,7 +357,7 @@ const FIREBASE_CONFIG = {
   appId: "..."
 };
 */
-const VERSION = 'F2.1';
+const VERSION = 'F2.2';
 
 /* ---------- utils ---------- */
 const $ = s => document.querySelector(s);
@@ -863,7 +863,7 @@ function redraw(key){ const L = LAYERS.find(l => l.key === key); if (!L) return;
 function closeLayer(key, instant){
   const i = key ? LAYERS.findIndex(l => l.key === key) : LAYERS.length - 1;
   if (i < 0) return; const [L] = LAYERS.splice(i, 1);
-  if (instant) L.el.remove(); else { L.el.classList.remove('on'); L.el.style.pointerEvents = 'none'; setTimeout(() => L.el.remove(), 180); }
+  if (instant) L.el.remove(); else { L.el.classList.remove('on'); L.el.style.pointerEvents = 'none'; setTimeout(() => L.el.remove(), 120); }
 }
 function layerBack(key){
   const top = LAYERS[LAYERS.length - 1];
@@ -1117,7 +1117,7 @@ function viewAcct(){
       <div><small>現在匯率</small><b>${cr.toFixed(4)}</b></div><div><small>平均成本匯率</small><b>${av.toFixed(4)}</b></div>
       <div><small>現值</small><b>${twd(b * cr)}</b></div><div><small>匯差</small><b class="${gain < 0 ? 'exp' : 'inc'}">${twd(gain, true)}</b></div></div></div>`;
   }
-  return `<div class="top"><button class="ib" onclick="goBack()">${ic('left',24)}</button><h1 style="flex:1;font-size:19px">${esc(a.name)}</h1>
+  return `<div class="top"><button class="ib" onclick="goBack(true)">${ic('left',24)}</button><h1 style="flex:1;font-size:19px">${esc(a.name)}</h1>
       ${canEditAcc(a) ? `<button class="ib" onclick="openAcctForm('${a.id}')">${ic('edit',22)}</button>` : '<span style="width:38px"></span>'}</div>
     ${ci ? '' : `<div class="card ${canEditAcc(a) ? 'tap' : ''}" ${canEditAcc(a) ? `onclick="openAcctForm('${a.id}')"` : ''}><small class="tx2">${TYPES[a.type]?.[0] || ''} · ${a.currency}${a.archived ? ' · 已封存' : ''} · 校正餘額 ›</small>
       <div style="font-size:30px;font-weight:800;margin-top:4px" class="${b < 0 ? 'exp' : ''}">${fmt(b, a.currency)}</div>
@@ -2442,7 +2442,7 @@ function navBackBtn(){
   if (!(NAVSTK.length && NAVSTK[NAVSTK.length - 1].link && S.ui.tab !== 'acct')) return;
   const t = $('#app .top'); if (!t || !t.firstElementChild) return;
   const h = t.firstElementChild, w = document.createElement('div');
-  w.style.cssText = 'display:flex;align-items:center;gap:2px;min-width:0'; w.innerHTML = `<button class="ib" onclick="goBack()" aria-label="返回">${ic('left',24)}</button>`; t.insertBefore(w, h); w.appendChild(h);
+  w.style.cssText = 'display:flex;align-items:center;gap:2px;min-width:0'; w.innerHTML = `<button class="ib" onclick="goBack(true)" aria-label="返回">${ic('left',24)}</button>`; t.insertBefore(w, h); w.appendChild(h);
 }
 
 /* ===== F1.6 列表左滑刪除：滑一半露出「刪除」、滑到底直接刪（進回收桶，5 秒內可復原）；左邊緣 30px 留給回上一頁 ===== */
@@ -3829,7 +3829,7 @@ let lastBackAt = 0;
 function canGoBack(){ return !LOCKED && (LAYERS.length > 0 || NAVSTK.length > 0 || S.ui.tab !== 'home'); }
 function goBack(fast){
   if (LOCKED) return false;
-  if (Date.now() - lastBackAt < 360) return true;
+  if (Date.now() - lastBackAt < 300) return true;
   lastBackAt = Date.now();
   if (LAYERS.length) {
     const top = LAYERS[LAYERS.length - 1];
@@ -3856,15 +3856,15 @@ addEventListener('popstate', () => {
   addEventListener('touchstart', e => {
     if (e.touches.length !== 1 || !canGoBack()) return reset();
     const t = e.touches[0];
-    if (t.clientX > 28 || e.target.closest('input,textarea,select,[contenteditable],.kp,[data-sw]')) return reset();
+    if (t.clientX > 36 || e.target.closest('input,textarea,select,[contenteditable],.kp,[data-sw]')) return reset();
     startX = t.clientX; startY = t.clientY;
   }, {passive:true});
   addEventListener('touchend', e => {
     if (startX === null || !canGoBack() || e.changedTouches.length !== 1) return reset();
     const t = e.changedTouches[0], dx = t.clientX - startX, dy = Math.abs(t.clientY - startY);
     reset();
-    // 只在手勢結束後回上一層，避免橫向圖表、垂直捲動或輸入時誤退。
-    if (dx >= 85 && dy < 60 && dx > dy * 1.6) goBack();
+    // 手勢結束即時回上一層，避免額外的淡出等待；保留垂直捲動與輸入防誤觸。
+    if (dx >= 40 && dy < 60 && dx > dy * 1.6) goBack(true);
   }, {passive:true});
   addEventListener('touchcancel', reset, {passive:true});
 })();;
