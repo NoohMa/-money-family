@@ -357,7 +357,7 @@ const FIREBASE_CONFIG = {
   appId: "..."
 };
 */
-const VERSION = 'F1.8';
+const VERSION = 'F1.9';
 
 /* ---------- utils ---------- */
 const $ = s => document.querySelector(s);
@@ -1380,7 +1380,7 @@ function renderPlan(){
     ${legacy ? `<div class="two"><div class="fld"><label>剩餘期數</label>${inp('n', '例：4', 'numeric')}</div><div class="fld"><label>每期金額（${cur}，含手續費）</label>${inp('per', '例：2835')}</div></div>`
       : `<div class="two"><div class="fld"><label>分期總額（${cur}）</label>${inp('principal', '例：50000')}</div><div class="fld"><label>期數</label>${inp('n', '例：3', 'numeric')}</div></div>
          <div class="fld"><label>年利率 %（知道年息才填；每期金額留空會自動算）</label>${inp('apr', '例：6')}</div>
-         <div class="two"><div class="fld"><label>每期金額（照銀行）</label>${inp('per', '沒填就平均拆')}</div><div class="fld"><label>首期金額（可空白）</label>${inp('first', '跟每期不同才填')}</div></div>
+         <div class="two"><div class="fld"><label>每期金額（含利息，照銀行）</label>${inp('per', '留空則自動平均')}<div style="margin-top:5px;color:var(--exp);font-weight:800;font-size:12px">${(+f.principal > 0 && +f.n > 0) ? '自動每期約 ' + fmt(Math.floor((+f.principal + (+f.fee || 0)) / (+f.n)), cur) : '輸入分期總額及期數後顯示'}</div></div><div class="fld"><label>首期金額（可空白）</label>${inp('first', '跟每期不同才填')}</div></div>
          <div class="fld"><label>手續費／利息總額（沒有就留空）</label>${inp('fee', '例：600')}</div>
          <div class="hint" style="margin:-4px 0 12px">有填每期金額：手續費可留空，自動算＝各期合計－分期總額（算進「金融 > 手續費」）。</div>`}
     <div class="fld"><label>${legacy ? '下一期' : '第一期'}入帳月份</label><input type="month" value="${esc(f.firstMonth)}" onchange="PF.firstMonth=this.value"></div>
@@ -1596,7 +1596,7 @@ function renderAdd(){
         ${n > 1 ? `<div class="frow ${F.active === 'iapr' ? 'on' : ''}" onclick="setAct('iapr')"><span class="lb" style="width:auto">年利率</span><span class="vl" style="justify-content:flex-end;align-items:center;gap:8px"><b class="${F.instAprExpr ? '' : 'tx2'}">${F.instAprExpr ? esc(F.instAprExpr) + ' %' : '知道年息才填，自動算每期'}</b>${F.instAprExpr ? `<button class="tx2" style="position:relative;z-index:2" onclick="event.stopPropagation();F.instAprExpr='';F.perAuto=false;F.active='amt';redraw('add')">${ic('x',14)}</button>` : ''}</span></div>` : ''}
         ${n > 1 ? `<div class="frow ${F.active === 'ifee' ? 'on' : ''}" onclick="setAct('ifee')"><span class="lb" style="width:auto">手續費／利息</span><span class="vl" style="justify-content:flex-end"><b class="${F.instFeeExpr ? 'exp' : 'tx2'}">${F.instFeeExpr ? sym + rawFmt(F.instFeeExpr) : auto !== null ? (auto < 0 ? '每期合計比金額少' : `自動算 ${sym}${nf(auto, 2)}`) : '總額，點此輸入'}</b></span></div>` : ''}
         ${n > 1 && !(F.showPer || F.instPerExpr || F.instFirstExpr || F.instAprExpr || F.instFeeExpr) ? `<button class="sm" style="display:block;margin:-4px 20px 8px auto;color:var(--acc);font-weight:600" onclick="F.showPer=true;redraw('add')">照銀行調整每期金額 ›</button>` : ''}
-        ${n > 1 && (F.showPer || F.instPerExpr || F.instFirstExpr || F.instAprExpr || F.instFeeExpr) ? `<div class="frow ${F.active === 'iper' ? 'on' : ''}" onclick="setAct('iper')"><span class="lb" style="width:auto">每期金額（照銀行）</span><span class="vl" style="justify-content:flex-end;align-items:center;gap:8px"><b class="${F.instPerExpr ? '' : 'tx2'}">${F.instPerExpr ? sym + rawFmt(F.instPerExpr) : '沒填就平均拆'}</b>${F.instPerExpr ? `<button class="tx2" style="position:relative;z-index:2" onclick="event.stopPropagation();F.instPerExpr='';F.instFirstExpr='';F.active='amt';redraw('add')">${ic('x',14)}</button>` : ''}</span></div>` : ''}
+        ${n > 1 && (F.showPer || F.instPerExpr || F.instFirstExpr || F.instAprExpr || F.instFeeExpr) ? `<div class="frow ${F.active === 'iper' ? 'on' : ''}" onclick="setAct('iper')"><span class="lb" style="width:auto">每期金額（含利息，照銀行）</span><span class="vl" style="justify-content:flex-end;align-items:center;gap:8px"><b class="exp" style="font-weight:800">${F.instPerExpr ? sym + rawFmt(F.instPerExpr) : (amt > 0 && n > 1 ? fmt(Math.floor((amt + fee) / n), cur) : sym + '0')}</b>${F.instPerExpr ? `<button class="tx2" style="position:relative;z-index:2" onclick="event.stopPropagation();F.instPerExpr='';F.instFirstExpr='';F.active='amt';redraw('add')">${ic('x',14)}</button>` : ''}</span></div>` : ''}
         ${F.instPerExpr ? `<div class="frow ${F.active === 'ifirst' ? 'on' : ''}" onclick="setAct('ifirst')"><span class="lb" style="width:auto">首期金額</span><span class="vl" style="justify-content:flex-end;align-items:center;gap:8px"><b class="${F.instFirstExpr ? '' : 'tx2'}">${F.instFirstExpr ? sym + rawFmt(F.instFirstExpr) : '跟每期不同才填'}</b>${F.instFirstExpr ? `<button class="tx2" style="position:relative;z-index:2" onclick="event.stopPropagation();F.instFirstExpr='';F.active='amt';redraw('add')">${ic('x',14)}</button>` : ''}</span></div>` : ''}
         `;
       { const amt = evalExpr(F.amtExpr), fx = evalExpr(F.fxExpr);
