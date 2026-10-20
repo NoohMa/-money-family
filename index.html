@@ -357,7 +357,7 @@ const FIREBASE_CONFIG = {
   appId: "..."
 };
 */
-const VERSION = 'F1.7';
+const VERSION = 'F1.8';
 
 /* ---------- utils ---------- */
 const $ = s => document.querySelector(s);
@@ -767,7 +767,17 @@ function cycleRaw(a, close, next){
   const r = {stmt, paid, post, unbilled, nextInst}; CYM.m.set(key, r); return r;
 }
 /* v2.31 可用額度：銀行只扣本金，還沒入帳的分期利息不扣 */
-function unbilledFee(a, close){ let f = 0; for (const x of cardPieces(a)) if (x.p.date > close && !x.p.payoff) f += x.p.fee; return f; }
+function unbilledFee(a, close){
+  // F1.8：未入帳的分期利息才不占額度；不變更各期帳單計算。
+  const td = today(), next = closeAdd(a, close, 1);
+  let f = 0;
+  for (const x of cardPieces(a)) {
+    const p = x.p;
+    if (p.payoff || !(p.fee > 0)) continue;
+    if (p.post ? p.post > td : p.date > next) f += p.fee;
+  }
+  return f;
+}
 /* 「以帳單為準」每期分開記（stmtOverrides[結帳日]），舊資料的 stmtOverride 也讀得到 */
 function ovOf(a, close){ const h = a.stmtOverrides || {}; if (h[close] !== undefined && h[close] !== null) return +h[close] || 0; return a.stmtOverride && a.stmtOverride.close === close ? +a.stmtOverride.amount || 0 : null; }
 /* 某期帳單的繳款＝結帳日隔天到下一個結帳日之間轉進這張卡的錢 */
