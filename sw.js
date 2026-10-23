@@ -1,5 +1,5 @@
-/* Money money-f2.5 - PWA 更新與離線快取 */
-const CACHE = 'money-f2.5|' + self.registration.scope;
+/* Money money-f2.6 - PWA 更新與離線快取 */
+const CACHE = 'money-f2.6|' + self.registration.scope;
 const OPTIONAL = [];
 const CDN = /^https:\/\/(www\.gstatic\.com\/firebasejs\/|cdnjs\.cloudflare\.com\/ajax\/libs\/)/;
 self.addEventListener('install', e => {

@@ -315,6 +315,35 @@ textarea.note{
   overflow-wrap:anywhere;
   box-sizing:border-box;
 }
+/* F2.6：個人版手機版面修正（不含配色） */
+.sum3 b,.ovk b,.kv b,.per p span,.nw .big{white-space:nowrap}
+button:focus-visible,.tap:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){.tap,.layer{transition:none}}
+/* V3.1 手機版面與子層統一修正 */
+@media(max-width:699px){
+  :root{--z:1}
+  html{font-size:16px}
+  body{zoom:1;font-size:16px}
+  .top h1{font-size:22px}
+  .sh{max-height:86dvh}
+  .layer.full .lin{width:100%;min-width:0;max-width:100%}
+  .layer .fscroll{min-width:0;overscroll-behavior:contain}
+  .lhd h2{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+  .lhd>.ib,.lhd>.mini{flex:0 0 40px}
+  .sum3{gap:5px}
+  .sum3>div{min-width:0}
+  .sum3 b{font-size:clamp(13px,4vw,18px);letter-spacing:-.3px}
+  .ovk b,.kv b{font-size:clamp(13px,4vw,18px)}
+  .rbar .nav2{min-width:0;max-width:100%}
+  .rbar .nav2 .ymt{min-width:0;text-overflow:ellipsis;overflow:hidden;white-space:nowrap}
+  .card,.list,.per div{min-width:0}
+  .card .chart,.card svg{max-width:100%}
+}
+html,body,#app,#layers{max-width:100%}
+html,body{overflow-x:clip}
+.layer .lin,.layer .fscroll,.layer .bdy{min-width:0}
+.layer .lhd{flex-shrink:0}
+.layer .fscroll{overflow-x:hidden}
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -362,7 +391,7 @@ const FIREBASE_CONFIG = {
   appId: "..."
 };
 */
-const VERSION = 'F2.5';
+const VERSION = 'F2.6';
 
 /* ---------- utils ---------- */
 const $ = s => document.querySelector(s);
@@ -4358,9 +4387,9 @@ function viewSettings(){
         <input type="color" value="${cu.acc || '#2A8378'}" oninput="colorPrev('acc',this.value)" onchange="colorSave('acc',this.value)" onblur="colorDone()" style="width:40px;height:34px;border:0;background:none">
         ${th === 'custom' ? '<b style="color:var(--pri);font-size:12px">使用中</b>' : ''}</span></div>` : ''}
       <div class="tog"><span>深淺色</span><div class="seg">${[['time','依時間'],['auto','跟系統'],['light','淺'],['dark','深']].map(([k, l]) => `<button class="${P.mode === k ? 'on' : ''}" onclick="P.mode='${k}';savePrefs();applyTheme();render()">${l}</button>`).join('')}</div></div>
-      ${P.mode === 'time' ? `<div class="tog" style="flex-wrap:wrap;gap:8px"><span>深色時段</span><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <input type="time" value="${P.darkFrom}" onchange="P.darkFrom=this.value||'22:00';savePrefs();applyTheme();render()" style="width:136px;font-size:15px;text-align:center;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg)">～
-        <input type="time" value="${P.darkTo}" onchange="P.darkTo=this.value||'08:00';savePrefs();applyTheme();render()" style="width:136px;font-size:15px;text-align:center;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg)"></span></div>` : ''}</div>
+      ${P.mode === 'time' ? `<div class="tog" style="flex-wrap:wrap;gap:8px"><span>深色時段</span><span style="display:flex;gap:6px;align-items:center;flex:1 1 100%;justify-content:flex-start">
+        <input type="time" value="${P.darkFrom}" onchange="P.darkFrom=this.value||'22:00';savePrefs();applyTheme();render()" style="flex:1;min-width:0;max-width:170px;font-size:15px;text-align:center;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg)">～
+        <input type="time" value="${P.darkTo}" onchange="P.darkTo=this.value||'08:00';savePrefs();applyTheme();render()" style="flex:1;min-width:0;max-width:170px;font-size:15px;text-align:center;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg)"></span></div>` : ''}</div>
     <div class="grp"><span>使用習慣</span></div>
     <div class="list set"><div class="row"><span class="mid"><b>離開後回到首頁今天</b><small>正在記帳且已輸入的內容會保留</small></span>${sel(+P.dockAfter || 0, [[0,'立即'],[30,'30 秒後'],[60,'1 分鐘後'],[300,'5 分鐘後'],[999999,'不要']], 'P.dockAfter=+this.value;savePrefs()')}</div></div>
     ${m ? `<div class="grp"><span>資料</span></div><div class="list set">
